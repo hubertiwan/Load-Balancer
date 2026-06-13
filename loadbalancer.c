@@ -22,13 +22,13 @@ struct backend {
     uint16_t sctp_port;
     uint16_t services[MAX_SERVICES];
     size_t   n_services;
-    uint32_t load;       /* z ostatniego MSG_HEALTH_RESP (krok 4) */
-    int      fail_count; /* kolejne nieudane health-checki (krok 4) */
+    uint32_t load;       /* z ostatniego MSG_HEALTH_RESP  */
+    int      fail_count; /* kolejne nieudane health-checki */
     bool     alive;
 };
 
 /* Wspoldzielony rejestr wezlow; mutex dojdzie wraz z watkiem
- * health-check (krok 4) - na razie modyfikuje go tylko watek glowny. */
+ * health-check - na razie modyfikuje go tylko watek glowny. */
 static struct backend backends[MAX_BACKENDS];
 static size_t backend_count;
 
@@ -184,6 +184,16 @@ static void drop_client(int epfd, struct conn *c)
     free(c);
 }
 
+/* Placeholder routingu - wybor zywego backendu o najmniejszym
+ * load, ktorego services[] zawiera service_type; nawiazanie polaczenia
+ * TCP i zalozenie sticky sesji klient<->backend. Do czasu implementacji
+ * kazde zadanie konczy sie MSG_ERROR. */
+static struct backend *route_request(uint16_t service_type)
+{
+    (void)service_type;
+    return NULL;
+}
+
 static void handle_client(int epfd, struct conn *c)
 {
     ssize_t n = conn_buf_fill(c->fd, &c->cb);
@@ -201,13 +211,22 @@ static void handle_client(int epfd, struct conn *c)
             drop_client(epfd, c);
             return;
         }
-        /* Forwarding do backendu dojdzie w kroku 5; na razie kazde
-         * zadanie konczy sie bledem "brak backendu". */
-        uint16_t err = htons(ERR_NO_BACKEND);
-        if (tlv_send(c->fd, MSG_ERROR, &err, sizeof(err)) < 0) {
-            drop_client(epfd, c);
-            return;
+
+        uint16_t service_type;
+        memcpy(&service_type, payload, sizeof(service_type));
+        service_type = ntohs(service_type);
+
+        struct backend *b = route_request(service_type);
+        if (!b) {
+            uint16_t err = htons(ERR_NO_BACKEND);
+            syslog(LOG_WARNING, "no backend for service %u", service_type);
+            if (tlv_send(c->fd, MSG_ERROR, &err, sizeof(err)) < 0) {
+                drop_client(epfd, c);
+                return;
+            }
+            continue;
         }
+        /* TODO: forward MSG_REQ do backendu, MSG_RESP z powrotem */
     }
     if (rc < 0)
         drop_client(epfd, c);
