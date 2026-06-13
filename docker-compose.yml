@@ -1,0 +1,69 @@
+services:
+  loadbalancer:
+    build:
+      context: .
+      target: loadbalancer
+    networks:
+      lbnet:
+        ipv4_address: 172.28.0.10   # statyczny adres balancera
+
+  server1:
+    build:
+      context: .
+      target: server
+    command: ["9001", "9101", "1", "2"]
+    networks: [lbnet]               # adres dynamiczny z puli
+    depends_on: [loadbalancer]
+
+  server2:
+    build:
+      context: .
+      target: server
+    command: ["9002", "9102", "2", "3"]
+    networks: [lbnet]
+    depends_on: [loadbalancer]
+
+  server3:
+    build:
+      context: .
+      target: server
+    command: ["9003", "9103", "3", "1"]
+    networks: [lbnet]
+    depends_on: [loadbalancer]
+
+  client1:
+    build:
+      context: .
+      target: client
+    command: ["loadbalancer", "8080", "1"]
+    stdin_open: true                # klient interaktywny: docker attach
+    tty: true
+    networks: [lbnet]
+    depends_on: [loadbalancer]
+
+  client2:
+    build:
+      context: .
+      target: client
+    command: ["172.28.0.10", "8080", "2"]
+    stdin_open: true
+    tty: true
+    networks: [lbnet]
+    depends_on: [loadbalancer]
+
+  client3:
+    build:
+      context: .
+      target: client
+    command: ["172.28.0.10", "8080", "3"]
+    stdin_open: true
+    tty: true
+    networks: [lbnet]
+    depends_on: [loadbalancer]
+
+networks:
+  lbnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
